@@ -1,34 +1,28 @@
-# Set-up
+## Set-up
 
-Requirements
+#### Requirements
 * python packages: biopython, xlsxwriter, click, changeo
 * igblast 1.6.1 (and blast database)
-          /rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/
 * clustalw 2.1
-          /rugpfs/fs0/nuss_lab/scratch/jpai/software/clustalw-2.1-linux-x86_64-libcppstatic/
 * antibody pipeline python and perl scripts
-          /data04-scratch/toliveira/jpai/antibody_pipeline/
 
 
-Install required modules and scripts
- `# install required python modules
-pip install biopython xlsxwriter click changeo
-
-# add antibody scripts to $PATH
- echo 'export PATH=/data04-scratch/toliveira/jpai/antibody_pipeline:$PATH' >> ~/.bashrc;
+#### Install required modules and scripts
+`pip install biopython xlsxwriter click changeo
+echo 'export PATH=/data04-scratch/toliveira/jpai/antibody_pipeline:$PATH' >> ~/.bashrc;
 source ~/.bashrc`
 
-Running the pipeline
+## Running the pipeline
 
-`# Convert trace files to fasta
-batch_ab1tofasta.py {ab1_data_dir} {output_dir} {output_fasta_name}`
+Convert trace files to fasta
+`batch_ab1tofasta.py {ab1_data_dir} {output_dir} {output_fasta_name}`
 
 example: 
 `cd /data04-scratch/toliveira/jpai/amelia_escolano/antibody/alivaMAb/LC;
 batch_ab1tofasta.py IP1_P1/data IP1_P1 IP1_P1_LC.fasta`
 
 
-Clone analysis
+### Clone analysis
 `antibody_analysis.py -i {input_fasta} -m {organism} [-e] clone -c {cut_off} -o {output_dir}`
 
 required arguments:
@@ -47,7 +41,7 @@ example:
 antibody_analysis.py -i IP1_P1_LC.fasta -m human clone -c 0.05`
 
 
-Alignment to reference
+### Alignment to reference
 `antibody_analysis.py -i {input_fasta} -m {organism} [-e] reference -r {primary_reference_fasta} -s {secondary_reference_fasta} [-a -f -v]`
 
 required arguments:
