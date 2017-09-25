@@ -13,7 +13,7 @@ EQUIVALENCY = {
     'F':['F','Y','W'], 'Y':['F','Y','W'], 'W':['Y','F','W']
 }
 
-# positions important for neutralization
+# positions important for neutralization by PGT
 NEUT_POS_HC = [ 55, 70, 102, 104, 111 ]
 NEUT_POS_LC = [ 24, 32, 49, 92, 95 ]
 
@@ -28,13 +28,11 @@ def set_up_workbook(outfile):
     HIGHLIGHT = workbook.add_format({ 'bg_color':'#FFFCC', 'align':'center' })
     RED_AND_HIGHLIGHT = workbook.add_format({ 'color':'red', 'bg_color':'#FFFCC', 'align':'center' })
 
-    formats = (CENTER, CENTER_BOLD, BOLD, RED, HIGHLIGHT, RED_AND_HIGHLIGHT)
-
-    return workbook, formats
+    return workbook
 
 
 def initialize_dicts(stats, vdjs, ref_id=None, sec_ref_ids=[]):
-    SEQ_IDS = [ref_id] + sec_ref_ids
+    SEQ_IDS = [ref_id] + list(sec_ref_ids)
 
     for s in sorted(vdjs):
         if s not in SEQ_IDS: SEQ_IDS.append(s)
@@ -44,21 +42,25 @@ def initialize_dicts(stats, vdjs, ref_id=None, sec_ref_ids=[]):
     return SEQ_IDS
 
 
-def output_ref_excel(vdjs, library_name, ref_id, sec_ref_ids, chain):
-    outfile = library_name + "_alignment.xlsx"
-    nt_files = [ x+"_nt_aligned.fa" for x in REGIONS ]
-    aa_files = [ x+"_aa_aligned.fa" for x in REGIONS ]
+def output_ref_excel(library, ref_id, sec_ref_ids, chain, filtered=False, align_cdr3=False):
+    #outfile = library.name + "_alignment_filtered.xlsx" if filtered else library.name + "_alignment.xlsx"
+    outfile = library.name + "_alignment.xlsx"
+    nt_files = [ library.name+"_"+x+"_nt_aligned.fa" for x in REGIONS ]
+    aa_files = [ library.name+"_"+x+"_aa_aligned.fa" for x in REGIONS ]
 
-    important_pos = NEUT_POS_HC if chain == 'HC' else NEUT_POS_LC
+    important_pos = NEUT_POS_HC if chain == 'IgH' else NEUT_POS_LC
     important_pos = adjust_important_columns(aa_files, important_pos)
 
     # make workbook with 2 worksheets: one for nucleotide alignment, one for amino acid alignment
-    workbook, formats = set_up_workbook(outfile)
+    workbook = set_up_workbook(outfile)
     nt_worksheet = workbook.add_worksheet('nucleotide')
     aa_worksheet = workbook.add_worksheet('amino acid')
 
-    write_worksheet(nt_worksheet, nt_files, 'nt', formats, ref_id, vdjs, sec_ref_ids)
-    write_worksheet(aa_worksheet, aa_files, 'aa', formats, ref_id, vdjs, sec_ref_ids, important_pos)
+    seqs = library.filtered_sequences if filtered else library.entries
+    vdjs = { s.entry_id: s.extract_vdj() for s in seqs}
+
+    write_worksheet(nt_worksheet, nt_files, 'nt', ref_id, vdjs, align_cdr3, sec_ref_ids)
+    write_worksheet(aa_worksheet, aa_files, 'aa', ref_id, vdjs, align_cdr3, sec_ref_ids, important_pos)
 
 
 def output_clone_excel(clone_id, vdjs, library_name):
@@ -72,18 +74,18 @@ def output_clone_excel(clone_id, vdjs, library_name):
     ref_id = 'germline'
 
     # make workbook with 2 worksheets: one for nucleotide alignment, one for amino acid alignment
-    workbook, formats = set_up_workbook(outfile)
+    workbook = set_up_workbook(outfile)
     nt_worksheet = workbook.add_worksheet('nucleotide')
     aa_worksheet = workbook.add_worksheet('amino acid')
 
-    write_worksheet(nt_worksheet, nt_files, 'nt', formats, ref_id, vdjs)
-    write_worksheet(aa_worksheet, aa_files, 'aa', formats, ref_id, vdjs)
+    write_worksheet(nt_worksheet, nt_files, 'nt', ref_id, vdjs, True)
+    write_worksheet(aa_worksheet, aa_files, 'aa', ref_id, vdjs, True)
 
 
-def write_worksheet(worksheet, aln_files, seq_type, formats, ref_id, vdjs, sec_ref_ids=[], important_pos=[]):
-    headers = ('sequence', 'V', 'D', 'J', 'matches (with germline)', 'mismatches (with germline)', 'gaps', 'insertions')
+def write_worksheet(worksheet, aln_files, seq_type, ref_id, vdjs, align_cdr3, sec_ref_ids=[], important_pos=[]):
+    headers = ['sequence', 'V', 'D', 'J', 'matches (with germline)', 'mismatches (with germline)', 'gaps', 'insertions']
     if seq_type == 'aa':
-        headers = [ x for x in headers ] + ['equiv mismatches', 'nonequiv mismatches',
+        headers += ['equiv mismatches', 'nonequiv mismatches',
                                             'neutralization position mismatches',
                                             'neutralization equiv mismatches',
                                             'neutralization nonequiv mismatches']
@@ -92,7 +94,7 @@ def write_worksheet(worksheet, aln_files, seq_type, formats, ref_id, vdjs, sec_r
         col_offset = last_header_col = 8
 
     worksheet.write_row('A1', headers, BOLD)
-    worksheet.freeze_panes(1,1)         # freeze first column and row
+    worksheet.freeze_panes(2,1)         # freeze first column and row
     worksheet.set_column(0,0,20)        # widen seq name column
 
     match, mismatch, gap, insertion, equiv, nonequiv = {}, {}, {}, {}, {}, {}
@@ -108,7 +110,7 @@ def write_worksheet(worksheet, aln_files, seq_type, formats, ref_id, vdjs, sec_r
         region = REGIONS[i]
         region_file = aln_files[i]
         last_col = output_region(region_file, last_col, region, worksheet, seq_type, col_offset,
-                                 stats, equiv_count_by_pos, formats, important_pos, sec_ref_ids)
+                                 stats, equiv_count_by_pos, important_pos, sec_ref_ids, align_cdr3)
 
     num_seqs = len(match)+1
     if seq_type == 'nt':
@@ -132,8 +134,10 @@ def write_worksheet(worksheet, aln_files, seq_type, formats, ref_id, vdjs, sec_r
 
         worksheet.write_row(i+1, 0, seq_details)
 
+    length_full_seq = last_col-1
+
     # report number of mutations at each position (col-wise)
-    for i in range(last_header_col,last_col):
+    for i in range(last_header_col,length_full_seq+1):
         col_range = xl_range(2+len(sec_ref_ids),i,num_seqs-1,i)
 
         if seq_type == 'nt':
@@ -144,12 +148,11 @@ def write_worksheet(worksheet, aln_files, seq_type, formats, ref_id, vdjs, sec_r
             worksheet.write_formula(num_seqs+1,i,'=COUNTIF(%s,"<>.") - COUNTIF(%s,"X") - COUNTIF(%s,"-")' % (col_range, col_range, col_range))
             worksheet.write_formula((num_seqs+2),i,'=COUNTA(%s) - COUNTIF(%s,"X") - COUNTIF(%s,"-")' % (col_range, col_range, col_range))
 
-    worksheet.set_column(last_header_col, last_col-1,2)
+    worksheet.set_column(last_header_col, length_full_seq, 2)
     worksheet.activate()
 
 
-
-def output_region(region_file,last_col,region_name,worksheet,seq_type,col_offset,stats,equiv_count_by_pos,formats,important_pos,sec_ref_ids):
+def output_region(region_file,last_col,region_name,worksheet,seq_type,col_offset,stats,equiv_count_by_pos,important_pos,sec_ref_ids, align_cdr3):
     match, mismatch, gap, insertion, equiv, nonequiv, mismatches_specific, equiv_specific, nonequiv_specific = stats
     ref_seqs_by_pos = {}
     row = 1
@@ -160,6 +163,13 @@ def output_region(region_file,last_col,region_name,worksheet,seq_type,col_offset
         seq = seq.replace('Z','*')
         if row == 1:
             ref_seq = seq
+
+        if not align_cdr3:
+            if region_name == 'CDR3-IMGT':       # don't output alignment, just CDR3 sequence
+                worksheet.write_string(row,col,seq.replace('-','').replace('.',''))
+                row += 1
+                continue
+
         for pos in range(0,len(seq)):
             write_equiv, write_equiv_specific = False, False
             if row == 1:            # reference sequences, all matches
@@ -176,7 +186,7 @@ def output_region(region_file,last_col,region_name,worksheet,seq_type,col_offset
                     insertion[id] += 1
                 elif ref_seq[pos] != "-" and seq[pos] == "-":
                     gap[id] += 1
-                elif seq[pos] != "X":
+                elif (seq_type == 'aa' and seq[pos] != "X" and ref_seq[pos] != "X") or (seq_type == 'nt' and seq[pos] != "N" and ref_seq[pos] != "N"):
                     mismatch[id] += 1
                     if (col+pos-col_offset) in important_pos:
                         mismatches_specific[id] += 1
@@ -207,19 +217,24 @@ def output_region(region_file,last_col,region_name,worksheet,seq_type,col_offset
                 worksheet.write_string(row,col+pos,seq[pos],RED_AND_HIGHLIGHT)
                 equiv_count_by_pos[col+pos] += 1
             elif write_equiv and row > len(sec_ref_ids)+1:
-                worksheet.write_string(row,col+pos,seq[pos],formats['RED'])
+                worksheet.write_string(row,col+pos,seq[pos],RED)
                 equiv_count_by_pos[col+pos] += 1
             elif row > 1 and row <= len(sec_ref_ids)+1 and (col+pos-col_offset) in important_pos and seq_type == 'aa':
-                worksheet.write_string(row,col+pos,seq[pos],formats['HIGHLIGHT'])
+                worksheet.write_string(row,col+pos,seq[pos],HIGHLIGHT)
             else:
                 worksheet.write_string(row,col+pos,seq[pos],CENTER)
 
             end = col+pos
         row +=1
 
-    worksheet.merge_range(0,col,0,end,region_name,CENTER_BOLD)
-    return end+1
+    if region_name != "CDR3-IMGT" or align_cdr3:
+        worksheet.merge_range(0,col,0,end,region_name,CENTER_BOLD)
+    else:
+        worksheet.merge_range(0,col,0,col+1,region_name,CENTER_BOLD)
+        end = col
+        equiv_count_by_pos[end] = 0
 
+    return end+1
 
 
 def adjust_important_columns(aln_files, important_pos):

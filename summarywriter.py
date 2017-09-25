@@ -5,13 +5,13 @@ from xlsxwriter.utility import xl_range
 import sys
 
 SORTED_REGIONS = { r:i for i,r in enumerate(['CDR3-IMGT', 'FR1-IMGT','CDR1-IMGT','FR2-IMGT','CDR2-IMGT','FR3-IMGT']) }
-CLONE_COLORS = ['#FF0000','#FF6666','#FF6600','#FFCC99','#FFFF00','#FFFFCC', # red, orange, yellow
-          '#008000','#00FF00', '#CCFFCC', '#00FFFF','#99CCFF','#0000FF', # green, blue
-          '#800080','#660099','#FF00FF','#CC99FF','#FF99CC','#E0E0E0']                      # purple, pink, grey
+CLONE_COLORS = ['#FF0000','#FF6666','#FF6600','#FFCC99','#FFFF00','#FFFFCC',            # red, orange, yellow
+          '#008000','#00FF00', '#CCFFCC', '#00FFFF','#99CCFF','#0000FF',                # green, blue
+          '#800080','#660099','#FF00FF','#CC99FF','#FF99CC','#E0E0E0']                  # purple, pink, grey
 
 def write_headers(worksheet, clone, bold):
-    field_names = ['seq_id','productive','in-frame','stop-codon','V','D','J','full_input','V_insertions','V_deletions',
-                   'nt_mismatches', 'aa_mismatches', 'CDR3_nt','CDR3_nt_length (V-region)','CDR3_matches (V-region)',
+    field_names = ['seq_id','productive','in-frame','stop-codon','V','D','J','full_input','VDJ_start','V_insertions','V_deletions',
+                   'nt_mismatches (up to CDR3)', 'aa_mismatches (up to CDR3)', 'CDR3_nt','CDR3_nt_length (V-region)','CDR3_matches (V-region)',
                    'CDR3_mismatches (V-region)','CDR3_gaps (V-region)','CDR3_aa','CDR3_aa_length',
                    'FR1_nt','FR1_nt_length','FR1_matches','FR1_mismatches','FR1_gaps','FR1_aa','FR1_aa_length',
                    'CDR1_nt','CDR1_nt_length','CDR1_matches','CDR1_mismatches','CDR1_gaps','CDR1_aa','CDR1_aa_length',
@@ -19,22 +19,23 @@ def write_headers(worksheet, clone, bold):
                    'CDR2_nt','CDR2_nt_length','CDR2_matches','CDR2_mismatches','CDR2_gaps','CDR2_aa','CDR2_aa_length',
                    'FR3_nt','FR3_nt_length','FR3_matches','FR3_mismatches','FR3_gaps','FR3_aa','FR3_aa_length',
                    'junction','junction_length','germline']
+    worksheet.set_column(0,0,33)
     if clone:
         field_names = ['clone_id', 'num_seqs'] + field_names + ['alignment_file']
+        worksheet.set_column(0,1,8)
+        worksheet.set_column(2,2,32)
 
     worksheet.write_row(0,0,field_names,bold)
     worksheet.freeze_panes(1,1)
-    worksheet.set_column(0,1,8)
-    worksheet.set_column(2,2,32)
     worksheet.set_zoom(65)
 
 
-def write_summary(library, chain, filter_prod=False, sec_ref_ids=[], clone=True):
+def write_summary(library, chain, filter_prod=False, ref_id=None, sec_ref_ids=[], clone=True):
     if clone:
         outfile = library.name+"_clone_filtered_summary.xlsx" if filter_prod else library.name+"_clone_summary.xlsx"
         colors = CLONE_COLORS
     else:
-        outfile = library.name+"_ref_summary.xlsx"
+        outfile = library.name+"_ref_filtered_summary.xlsx" if filter_prod else library.name+"_ref_summary.xlsx"
         colors = ['#FFFFFF']
 
     # make workbook and formats
@@ -57,7 +58,12 @@ def write_summary(library, chain, filter_prod=False, sec_ref_ids=[], clone=True)
             total_num_seqs = output_by_clone(workbook, seq_filtered_sheet, library.functional_clones, library.name)
             write_chart(workbook, chart_filtered_sheet, library.functional_clones, total_num_seqs)
     else:
-        pass#output_all()
+        total_num_seqs = output_all(workbook, seq_sheet, library, library.name, False)
+
+        if filter_prod:
+            seq_filtered_sheet = workbook.add_worksheet(chain+' filtered')
+            write_headers(seq_filtered_sheet, clone, bold)
+            total_num_seqs = output_all(workbook, seq_filtered_sheet, library, library.name, True)
 
 
 def output_by_clone(workbook, worksheet, clones, library_name):
@@ -88,7 +94,7 @@ def output_by_clone(workbook, worksheet, clones, library_name):
 
         for s in seq_objs:
             seq_entry = [ s.entry_id, s.prod, s.inframe, s.stop_codon, s.top_v, s.top_d, s.top_j,
-                         s.seq, s.v_insertions, s.v_deletions, s.nt_mismatches, s.aa_mismatches ]
+                         s.seq, s.vdj_start, s.v_insertions, s.v_deletions, s.nt_mismatches, s.aa_mismatches ]
             for r in OrderedDict(sorted(s.details.items(), key=lambda x:SORTED_REGIONS.get(x[0]))):
                 seq_entry += [s.regions[r][0]] + s.details[r][2:] + [s.regions[r][1], len(s.regions[r][1])]
             seq_entry += [ s.junction, len(s.junction), s.germseq ]
@@ -111,40 +117,19 @@ def output_by_clone(workbook, worksheet, clones, library_name):
 
     return total_num_seqs
 
-def write_out_all(worksheet,db):
-    worksheet.activate()
-    worksheet.freeze_panes(1,1)
-    worksheet.set_column(0,0,20)
 
-    row = 2 + len(sec_ref_ids)
-    sec_row = 2
-    for seq in db:
-        if seq == ref_id:
-            print('ref: ',seq)
-            worksheet.write(1,0,seq)
-            col = 1
-            for field in db[seq]:
-                worksheet.write(1,col,field)
-                col += 1
-        elif seq in sec_ref_ids:
-            print('sec ref: ',seq)
-            worksheet.write(sec_row,0,seq)
-            col = 1
-            for field in db[seq]:
-                worksheet.write(sec_row,col,field)
-                col += 1
-            sec_row += 1
-        else:
-            worksheet.write(row,0,seq)
-            col = 1
-            for field in db[seq]:
-                worksheet.write(row,col,field)
-                col += 1
-            row += 1
+def output_all(workbook, worksheet, library, library_name, filter_prod):
+    row = 1
+    for s in library.entries:
+        if filter_prod and s.prod != "Yes": continue
+        seq_entry = [ s.entry_id, s.prod, s.inframe, s.stop_codon, s.top_v, s.top_d, s.top_j,
+                        s.seq, s.vdj_start, s.v_insertions, s.v_deletions, s.nt_mismatches, s.aa_mismatches ]
+        for r in OrderedDict(sorted(s.details.items(), key=lambda x:SORTED_REGIONS.get(x[0]))):
+            seq_entry += [s.regions[r][0]] + s.details[r][2:] + [s.regions[r][1], len(s.regions[r][1])]
+        seq_entry += [ s.junction, len(s.junction), s.germseq ]
 
-    # create link to alignment file
-    alignment_file = basename + "_alignment.xlsx"
-    worksheet.write_url(row+1,0,alignment_file,link_format,'alignment')
+        worksheet.write_row(row, 0, seq_entry)
+        row += 1
 
 
 def write_chart(workbook, worksheet, sorted_clones, total_num_seqs):
