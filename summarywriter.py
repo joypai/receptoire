@@ -10,7 +10,8 @@ CLONE_COLORS = ['#FF0000','#FF6666','#FF6600','#FFCC99','#FFFF00','#FFFFCC',    
           '#800080','#660099','#FF00FF','#CC99FF','#FF99CC','#E0E0E0']                  # purple, pink, grey
 
 def write_headers(worksheet, clone, bold):
-    field_names = ['seq_id','productive','in-frame','stop-codon','V','D','J','full_input','VDJ_start','V_insertions','V_deletions',
+    field_names = ['seq_id','productive','in-frame','stop-codon','V','D','J','full_input',
+                   'FWR1_start','FWR1_beginning_nt','FWR1_beggining_aa','V_insertions','V_deletions',
                    'nt_mismatches (up to CDR3)', 'aa_mismatches (up to CDR3)', 'CDR3_nt','CDR3_nt_length (V-region)','CDR3_matches (V-region)',
                    'CDR3_mismatches (V-region)','CDR3_gaps (V-region)','CDR3_aa','CDR3_aa_length',
                    'FR1_nt','FR1_nt_length','FR1_matches','FR1_mismatches','FR1_gaps','FR1_aa','FR1_aa_length',
@@ -19,7 +20,7 @@ def write_headers(worksheet, clone, bold):
                    'CDR2_nt','CDR2_nt_length','CDR2_matches','CDR2_mismatches','CDR2_gaps','CDR2_aa','CDR2_aa_length',
                    'FR3_nt','FR3_nt_length','FR3_matches','FR3_mismatches','FR3_gaps','FR3_aa','FR3_aa_length',
                    'junction','junction_length','germline']
-    worksheet.set_column(0,0,33)
+    worksheet.set_column(0,0,35)
     if clone:
         field_names = ['clone_id', 'num_seqs'] + field_names + ['alignment_file']
         worksheet.set_column(0,1,8)
@@ -94,7 +95,8 @@ def output_by_clone(workbook, worksheet, clones, library_name):
 
         for s in seq_objs:
             seq_entry = [ s.entry_id, s.prod, s.inframe, s.stop_codon, s.top_v, s.top_d, s.top_j,
-                         s.seq, s.vdj_start, s.v_insertions, s.v_deletions, s.nt_mismatches, s.aa_mismatches ]
+                         s.seq, s.vdj_start, s.fwr1_beginning_nt, s.fwr1_beginning_aa,
+                         s.v_insertions, s.v_deletions, s.nt_mismatches, s.aa_mismatches ]
             for r in OrderedDict(sorted(s.details.items(), key=lambda x:SORTED_REGIONS.get(x[0]))):
                 seq_entry += [s.regions[r][0]] + s.details[r][2:] + [s.regions[r][1], len(s.regions[r][1])]
             seq_entry += [ s.junction, len(s.junction), s.germseq ]
@@ -123,7 +125,8 @@ def output_all(workbook, worksheet, library, library_name, filter_prod):
     for s in library.entries:
         if filter_prod and s.prod != "Yes": continue
         seq_entry = [ s.entry_id, s.prod, s.inframe, s.stop_codon, s.top_v, s.top_d, s.top_j,
-                        s.seq, s.vdj_start, s.v_insertions, s.v_deletions, s.nt_mismatches, s.aa_mismatches ]
+                        s.seq, s.fwr1_beginning_nt, s.fwr1_beginning_aa,
+                        s.vdj_start, s.v_insertions, s.v_deletions, s.nt_mismatches, s.aa_mismatches ]
         for r in OrderedDict(sorted(s.details.items(), key=lambda x:SORTED_REGIONS.get(x[0]))):
             seq_entry += [s.regions[r][0]] + s.details[r][2:] + [s.regions[r][1], len(s.regions[r][1])]
         seq_entry += [ s.junction, len(s.junction), s.germseq ]

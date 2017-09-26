@@ -10,38 +10,36 @@ import warnings
 warnings.simplefilter('ignore', BiopythonWarning)
 
 REGIONS = ['FR1-IMGT', 'CDR1-IMGT', 'FR2-IMGT', 'CDR2-IMGT', 'FR3-IMGT', 'CDR3-IMGT']
+V_fasta = { 'human': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Human_IGV.fasta',
+           'mouse': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Mouse_IGV.fasta' }
 
 class AntibodyLibrary:
-    def __init__(self, name, igblast_file, changeo_file, chain):
+    def __init__(self, name, igblast_file, changeo_file, chain, organism):
         self.name = name
         self.chain = chain
         self.igblast_file = igblast_file
         self.changeo_file = changeo_file
-        vdj_start = self._get_VDJ_start()
-        self.entries = self._create_sequences(vdj_start)       # list of AntibodySequence objects
+        self.entries = self._create_sequences()       # list of AntibodySequence objects
         self.heavy_seqs, self.light_seqs = self._split_heavy_light()
+        self._fill_fwr1_beginning(organism)
 
-    def _create_sequences(self, vdj_start):
+    def _create_sequences(self):
         """ create AntibodySequence object for each sequence """
         igblast_output = open(self.igblast_file).readlines()
         chunks = [ list(y) for x,y in groupby(igblast_output, lambda x: not re.match('# IGBLASTN', x)) ]
         chunks = list(filter(lambda x: not x[0].startswith('# IGBLASTN') and len(x) > 0,  chunks))
         entries = [ AntibodySequence(info, self.chain) for info in chunks if any("# Alignment" in s for s in info) ]
 
-        # append info about VDJ start position
-        for entry in entries:
-            if entry.entry_id in vdj_start:
-                entry.add_vdj_start(vdj_start[entry.entry_id])
-            else:
-                entry.add_vdj_start(0)
-
         return entries
 
-    def _get_VDJ_start(self):
-        vdj_start = dict([ itemgetter(*[0,14])(entry.strip().split('\t')) for entry in open(self.changeo_file).readlines() ])
-        print(vdj_start)
+    def _fill_fwr1_beginning(self, organism):
+        V_db = SeqIO.to_dict(SeqIO.parse(V_fasta[organism],"fasta"), key_function = lambda rec: rec.description.split('|')[1])
 
-        return vdj_start
+        for entry in self.entries:
+            if not entry.full_fwr1():
+                entry.fill_fwr1_beginning(str(V_db[entry.extract_vdj()[0]].seq))
+            else:
+                entry.fill_fwr1_beginning()
 
     def _split_heavy_light(self):
         heavy, light = [], []
@@ -67,8 +65,8 @@ class AntibodyLibrary:
 
 
 class ClonalAntibodyLibrary(AntibodyLibrary):
-    def __init__(self, name, igblast_file, changeo_file, chain):
-        AntibodyLibrary.__init__(self, name, igblast_file, changeo_file, chain)
+    def __init__(self, name, igblast_file, changeo_file, chain, organism):
+        AntibodyLibrary.__init__(self, name, igblast_file, changeo_file, chain, organism)
         self.clones = self._make_clones()
         self.functional_clones = self._filter_functional()
 
@@ -114,8 +112,8 @@ class ClonalAntibodyLibrary(AntibodyLibrary):
 
 
 class ReferenceAntibodyLibrary(AntibodyLibrary):
-    def __init__(self, name, igblast_file, chain, ref_id, sec_ref_ids):
-        AntibodyLibrary.__init__(self, name, igblast_file, chain)
+    def __init__(self, name, igblast_file, chain, ref_id, sec_ref_ids, organism):
+        AntibodyLibrary.__init__(self, name, igblast_file, chain, organism)
         self.ref_id = ref_id
         self.sec_ref_ids = sec_ref_ids
         self.ref_obj = [ s for s in self.entries if s.entry_id == self.ref_id ][0]
@@ -288,6 +286,19 @@ class AntibodySequence:
         self.regions, self.germline_regions = self._extract_regions()
         self.nt_mismatches, self.aa_mismatches = self._calculate_mismatches()
 
+    def fill_fwr1_beginning(self, germline_v=None):
+        if germline_v is None:
+            self.fwr1_beginning_nt, self.fwr1_beginning_aa = "", ""
+            return
+
+        num_missing_bases = self.overflow + self.vdj_start
+        self.fwr1_beginning_nt = germline_v.replace('.','')[:num_missing_bases-1].upper()
+        self.fwr1_beginning_aa = str(Seq(self.fwr1_beginning_nt).translate())
+
+
+    def full_fwr1(self):
+        return True if self.vdj_start == 1 else False
+
     def add_vdj_start(self, position):
         self.vdj_start = 1 if isinstance(position, bool) and position else int(position)
 
@@ -352,7 +363,7 @@ class AntibodySequence:
 
                 for hit in content:
                     if hit[0] not in seen and hit[0] in ['V','J']:
-                        seq, germseq = hit.split('\t')[14:16]
+                        s_start, _, _, _, seq, germseq = hit.split('\t')[10:16]
 
                         if self.chain_type != "VH" and hit[0] == "J" and len(junction_overlaps) != 0 and seq.startswith(junction_overlaps[0]):
                             seq = seq[len(junction_overlaps[0]):]
@@ -364,6 +375,7 @@ class AntibodySequence:
                             self.vseq = seq
                             self.seq += self.junction
                             self.germseq += 'N' * len(self.junction)
+                            self.vdj_start = int(s_start)
                         seen.add(hit[0])
 
         if not hasattr(self,'details'):
@@ -383,6 +395,7 @@ class AntibodySequence:
             self.overflow = (self.overflow - num_insertions) % 3
 
         return self
+
 
     def _extract_regions(self):
         region_seqs = {}
