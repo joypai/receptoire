@@ -13,21 +13,22 @@ DIST_MODEL = { 'mouse': 'm1n_compat', 'human': 'hs1f_compat'}
 
 
 # helper functions:
-def run_igblastn(input_fasta, model_organism, align5end):
+def run_igblastn(input_fasta, model_organism, seq_type, align5end):
     curdir = os.getcwd()
     os.chdir(IGBLAST)
     output_file = os.path.splitext(input_fasta)[0]
 
     cmd = "{igblastn}/bin/igblastn -query {infile} -out {outfile} \
-            -germline_db_V {igblastn}/database/{organism}_ig_v \
-            -germline_db_D {igblastn}/database/{organism}_ig_d \
-            -germline_db_J {igblastn}/database/{organism}_ig_j \
+            -germline_db_V {igblastn}/database/{organism}_{db_type}_v \
+            -germline_db_D {igblastn}/database/{organism}_{db_type}_d \
+            -germline_db_J {igblastn}/database/{organism}_{db_type}_j \
             -auxiliary_data {igblastn}/optional_file/{organism}_gl.aux \
-            -domain_system imgt -ig_seqtype Ig -outfmt '7 std qseq sseq btop' \
+            -domain_system imgt -ig_seqtype {seq_type} -outfmt '7 std qseq sseq btop' \
             -num_alignments_V 1 -num_alignments_D 1 -num_alignments_J 1 \
             -show_translation {extend} \
             -organism {organism}".format(igblastn=IGBLAST, organism=model_organism,
                                          infile=input_fasta, outfile=output_file,
+                                         seq_type=seq_type, db_type="ig" if seq_type == "Ig" else "trb",
                                          extend="-extend_align5end" if align5end else "")
 
     click.secho("Running Igblast ... ", fg="blue", bold=True, nl=False)
@@ -89,12 +90,16 @@ def changeo(input_fasta, igblast_out, organism, *args):
 @click.option('--model_organism', '-m', type=click.Choice(['mouse', 'human']),
               prompt="Please enter model organism used",
               help='organism from which sequences were obtained')
+@click.option('--seq_type', '-s', type=click.Choice(['Ig', 'TCR']),
+              prompt="Please enter sequence type",
+              help='sequence type')
 @click.option('--extend_5end', '-e', is_flag=True, help='invoke IgBLAST parameter to extend alignment for 5\' end (-extend_align5end)')
 @click.pass_context
-def run_analysis(ctx, input_file, model_organism, extend_5end):
+def run_analysis(ctx, input_file, model_organism, seq_type, extend_5end):
     subprocess.call(['date'])
     ctx.obj['INPUT'] = input_file
     ctx.obj['ORGANISM'] = model_organism
+    ctx.obj['SEQ_TYPE'] = seq_type
     ctx.obj['EXTEND'] = extend_5end
 
     # determine if heavy or light chain based on input fasta file name
@@ -111,6 +116,7 @@ def clone(ctx, outdir, cut_off, filter_functional):
     input_fasta = os.path.abspath(ctx.obj['INPUT'])
     chain = ctx.obj['CHAIN']
     model_organism = ctx.obj['ORGANISM']
+    seq_type = ctx.obj['SEQ_TYPE']
     library_name = os.path.basename(input_fasta).split('.fasta')[0]
 
     cur_dir = os.path.dirname(input_fasta)
@@ -123,9 +129,9 @@ def clone(ctx, outdir, cut_off, filter_functional):
     click.echo('filter nonfunctional:\t%s' % filter_functional)
     click.echo('extend 5\' end:\t\t%s' % ctx.obj['EXTEND'])
 
-    igblast_out = run_igblastn(input_fasta, model_organism, ctx.obj['EXTEND'])
+    igblast_out = run_igblastn(input_fasta, model_organism, seq_type, ctx.obj['EXTEND'])
     changeo_out = changeo(input_fasta, igblast_out, model_organism, cut_off)
-    library = ClonalAntibodyLibrary(library_name, igblast_out, changeo_out, chain)
+    library = ClonalAntibodyLibrary(library_name, igblast_out, changeo_out, chain, model_organism, seq_type)
 
     click.secho('Creating clone alignment files: ', fg='blue', bold=True, nl=False)
     if not os.path.exists(cur_dir+"/"+outdir): os.makedirs(cur_dir+"/"+outdir)
@@ -178,6 +184,7 @@ def reference(ctx, reference, sec_ref, filter_functional, filter_same_v, align_c
     input_fasta = os.path.abspath(ctx.obj['INPUT'])
     chain = ctx.obj['CHAIN']
     model_organism = ctx.obj['ORGANISM']
+    seq_type = ctx.obj['SEQ_TYPE']
     library_name = os.path.basename(input_fasta).split('.fasta')[0]
 
     cur_dir = os.path.dirname(input_fasta)
@@ -207,8 +214,8 @@ def reference(ctx, reference, sec_ref, filter_functional, filter_same_v, align_c
         else:
             subprocess.call(['cat', reference, ctx.obj['INPUT']], stdout=outfile)
 
-    igblast_out = run_igblastn(cur_dir+'/input_ref_combined.fasta', model_organism, ctx.obj['EXTEND'])
-    library = ReferenceAntibodyLibrary(library_name, igblast_out, chain, ref_id, sec_ref_ids)
+    igblast_out = run_igblastn(cur_dir+'/input_ref_combined.fasta', model_organism, seq_type, ctx.obj['EXTEND'])
+    library = ReferenceAntibodyLibrary(library_name, igblast_out, chain, model_organism, seq_type, ref_id, sec_ref_ids)
 
     click.secho('Creating alignment file: ', fg='blue', bold=True, nl=False)
     id_filename, region_filenames = library.output_region_fastas(filter_functional, filter_same_v)
