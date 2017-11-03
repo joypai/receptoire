@@ -58,14 +58,6 @@ def changeo(input_fasta, igblast_out, organism, *args):
 
     click.secho('Identifying clones ', fg='blue', bold=True)
     # determine clone cut-off
-    """
-    if args[0] is None:      # no clone cut-off distance specified; use dynamic clone clustering
-        click.secho("Determining clone cut-off distance", fg="blue", bold=True)
-        cmd = "Rscript ~/scripts/cluster_cutoff.R {outfile}.tab {outfile}_dist.pdf {model} | cut -d ' ' -f2".format(outfile=igblast_out, model=DIST_MODEL[organism])
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
-        cutoff = float(p.communicate()[0])
-        click.secho("chosen cut-off distance: ", fg="yellow", nl=False)
-    """
     if args[0] is None:      # no clone cut-off distance specified; use default cut-off 0.05
         cutoff=0.05
         click.secho("default cut-off distance: ", fg="yellow", nl=False)
@@ -83,15 +75,12 @@ def changeo(input_fasta, igblast_out, organism, *args):
 
     return igblast_out+'_clone-pass.tab'
 
-
-
 @click.group()
 @click.option('--input-file', '-i', type=click.Path(exists=True), required=True, help='input fasta')
 @click.option('--model_organism', '-m', type=click.Choice(['mouse', 'human']),
               prompt="Please enter model organism used",
               help='organism from which sequences were obtained')
-@click.option('--seq_type', '-s', type=click.Choice(['Ig', 'TCR']),
-              prompt="Please enter sequence type",
+@click.option('--seq_type', '-s', type=click.Choice(['Ig', 'TCR']), default='Ig',
               help='sequence type')
 @click.option('--extend_5end', '-e', is_flag=True, help='invoke IgBLAST parameter to extend alignment for 5\' end (-extend_align5end)')
 @click.pass_context
@@ -123,7 +112,8 @@ def clone(ctx, outdir, cut_off, filter_functional):
     os.chdir(cur_dir)
 
     click.secho('--> Running clonal analysis', fg='green')
-    click.echo('input file:\t\t%s' % ctx.obj['INPUT'])
+    click.echo('input file:\t\t%s' % input_fasta)
+    click.echo('sequence type:\t\t%s' % seq_type)
     click.echo('organism:\t\t%s' % model_organism)
     if cut_off: click.echo('specified cut-off:\t%f' % cut_off)
     click.echo('filter nonfunctional:\t%s' % filter_functional)
@@ -194,6 +184,7 @@ def reference(ctx, reference, sec_ref, filter_functional, filter_same_v, align_c
 
     click.secho('--> Running analysis against reference', fg='green')
     click.echo('input file:\t\t%s' % input_fasta)
+    click.echo('sequence type:\t\t%s' % seq_type)
     click.echo('organism:\t\t%s' % model_organism)
     click.echo('reference id:\t\t%s' % ref_id)
 

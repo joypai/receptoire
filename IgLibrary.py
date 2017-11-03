@@ -114,7 +114,6 @@ class ClonalAntibodyLibrary(AntibodyLibrary):
         with open('results.txt','w') as outf:
             for s in self.entries:
                 outf.write("\t".join([s.entry_id,s.seq[s.overflow:],s.aa_seq,s.top_v.split(',')[0],s.top_d.split(',')[0],s.top_j.split(',')[0],s.prod]) + "\n")
-                #outf.write("\t".join([s.entry_id,s.seq[s.overflow:],s.aa_seq,s.top_v.split(',')[0],s.top_d.split(',')[0],s.top_j.split(',')[0],s.cdr3_aa,s.prod]) + "\n")
 
 
 class ReferenceAntibodyLibrary(AntibodyLibrary):
@@ -143,13 +142,11 @@ class ReferenceAntibodyLibrary(AntibodyLibrary):
             ref_V = self.ref_obj.top_v
             filtered_seqs = [ s for s in self.entries if s.entry_id in self.sec_ref_ids or s.prod == 'Yes' \
                              and s.top_v.split('*')[0] == ref_V.split('*')[0] ]
-            #filtered_seqs = [ s for s in self.entries if s.prod != 'No' and s.top_v.split('*')[0] == ref_V.split('*')[0] ]
         else:   # include only functional antibody sequences in alignment
             filtered_seqs = [ s for s in self.entries if s.entry_id in self.sec_ref_ids or s.prod == 'Yes']
-            #filtered_seqs = [ s for s in self.entries if s.prod != 'No']
-        #print('num same v:', len(filtered_seqs))
 
         fs = sorted(filtered_seqs, key=lambda x:x.entry_id)
+
         return fs
 
     def _write_id_order(self, seqs):
@@ -278,16 +275,13 @@ class Clone:
         consensus_gl = {}
         for r in germlines:
             consensus_gl[r] = max(germlines[r].items(), key=itemgetter(1))[0]
-
         return consensus_gl
 
 
 class AntibodySequence:
-
     def __init__(self, info, chain):
         self.entry_id = info[0].strip().split('# Query: ')[1]
         self._fill_features(info[4:], chain)
-
         self.outfile = open('seqs.txt','a')
         self.regions, self.germline_regions = self._extract_regions()
         self.nt_mismatches, self.aa_mismatches = self._calculate_mismatches()
@@ -303,7 +297,6 @@ class AntibodySequence:
         self.fwr1_beginning_nt = germline_v[:num_missing_bases-1]
         self.fwr1_beginning_aa = str(Seq(self.fwr1_beginning_nt).translate())
         self.full_fwr1_input = germline_v[:self.vdj_start-1] + self.seq
-
 
     def full_fwr1(self):
         return True if self.vdj_start == 1 else False
@@ -374,9 +367,9 @@ class AntibodySequence:
                     if hit[0] not in seen and hit[0] in ['V','J']:
                         s_start, _, _, _, seq, germseq = hit.split('\t')[10:16]
 
-                        #if self.chain_type != "VH" and hit[0] == "J" and len(junction_overlaps) != 0 and seq.startswith(junction_overlaps[0]):
-                        #    seq = seq[len(junction_overlaps[0]):]
-                        #    germseq = germseq[len(junction_overlaps[0]):]
+                        if self.chain_type != "VH" and hit[0] == "J" and len(junction_overlaps) != 0 and seq.startswith(junction_overlaps[0]):
+                            seq = seq[len(junction_overlaps[0]):]
+                            germseq = germseq[len(junction_overlaps[0]):]
                         self.seq += seq
                         self.germseq += germseq
 
@@ -403,7 +396,7 @@ class AntibodySequence:
         elif num_insertions != 0:
             self.overflow = (self.overflow - num_insertions) % 3
 
-        print(self.entry_id,"\t",self.overflow,sep="")
+        #print(self.entry_id,"\t",self.overflow,sep="")
 
         return self
 
@@ -472,6 +465,7 @@ class AntibodySequence:
                 aa_seq, full_aa_seq = full_aa_seq[:round(len(seq)/3)], full_aa_seq[round(len(seq)/3):]
             if aa_seq == '': aa_seq = 'X'           # not enough amino acids due to frameshift
             aa_germseq, full_aa_germseq = full_aa_germseq[:round(len(germseq)/3)], full_aa_germseq[round(len(germseq)/3):]
+            #print(self.entry_id, germseq, aa_germseq)
 
             region_seqs[region] = (seq,aa_seq)
             region_germseqs[region] = (germseq,aa_germseq)
@@ -490,7 +484,6 @@ class AntibodySequence:
     def extract_vdj(self):
         return self.top_v, self.top_d, self.top_j
 
-
     def _calculate_mismatches(self):
         """ determine number of mismatches in regions up to CDR3 """
 
@@ -500,10 +493,10 @@ class AntibodySequence:
             aa_seq = self.aa_seq.split(self.cdr3_aa)[0]
             aa_germseq = self.aa_germseq[:len(aa_seq)]
         elif self.regions['CDR3-IMGT'][1] != 'XX':              # remove sequence after FR3
-            seq = self.seq[:self.cdr3_start]#.split(cdr3_nt_seq)[0]
-            germseq = self.germseq[:self.cdr3_start]#.split(cdr3_nt_germseq)[0]
-            aa_seq = self.aa_seq[:round(self.cdr3_aa_start/3)]#.split(cdr3_aa_seq)[0]
-            aa_germseq = self.aa_germseq[:round(self.cdr3_aa_start/3)]#.split(cdr3_aa_germseq)[0]
+            seq = self.seq[:self.cdr3_start]
+            germseq = self.germseq[:self.cdr3_start]
+            aa_seq = self.aa_seq[:round(self.cdr3_aa_start/3)]
+            aa_germseq = self.aa_germseq[:round(self.cdr3_aa_start/3)]
             if aa_seq == '': aa_seq = 'X'
         else:         # short sequence, no CDR3, no need to truncate
             seq = self.seq[self.overflow:]
@@ -535,7 +528,6 @@ class AntibodySequence:
                 codon += x
             else:
                 new_seq += "N"
-
 
     def get_id(self):
         return self.entry_id
