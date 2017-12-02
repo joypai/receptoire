@@ -16,7 +16,7 @@ echo 'export PATH=/data04-scratch/toliveira/jpai/antibody_pipeline:$PATH' >> ~/.
 source ~/.bashrc
 ```
 
-## Running the pipeline
+## Running the program
 
 Convert trace files to fasta
 ```shell
