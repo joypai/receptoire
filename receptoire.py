@@ -4,11 +4,7 @@ from IgLibrary import ClonalAntibodyLibrary, ReferenceAntibodyLibrary
 from alignmentwriter import output_clone_excel, output_ref_excel
 from summarywriter import write_summary
 
-# tools:
-#CLUSTALW2='~/software/clustalw2'
 IGBLAST='/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1'
-
-#DIST_MODEL = { 'mouse': 'm1n', 'human': 'hs1f'}             # old version changeo
 DIST_MODEL = { 'mouse': 'm1n_compat', 'human': 'hs1f_compat'}
 
 
@@ -82,7 +78,8 @@ def changeo(input_fasta, igblast_out, organism, *args):
               help='organism from which sequences were obtained')
 @click.option('--seq_type', '-s', type=click.Choice(['Ig', 'TCR']), default='Ig',
               help='sequence type')
-@click.option('--extend_5end', '-e', is_flag=True, help='invoke IgBLAST parameter to extend alignment for 5\' end (-extend_align5end)')
+@click.option('--extend_5end', '-e', is_flag=True, 
+              help='invoke IgBLAST parameter to extend alignment for 5\' end (-extend_align5end)')
 @click.pass_context
 def run_analysis(ctx, input_file, model_organism, seq_type, extend_5end):
     subprocess.call(['date'])
@@ -124,8 +121,10 @@ def clone(ctx, outdir, cut_off, filter_functional):
     library = ClonalAntibodyLibrary(library_name, igblast_out, changeo_out, chain, model_organism, seq_type)
 
     click.secho('Creating clone alignment files: ', fg='blue', bold=True, nl=False)
-    if not os.path.exists(cur_dir+"/"+outdir): os.makedirs(cur_dir+"/"+outdir)
-    if not os.path.exists(os.path.join(cur_dir,outdir,'clone_alignments')): os.makedirs(os.path.join(cur_dir,outdir,'clone_alignments'))
+    if not os.path.exists(cur_dir+"/"+outdir): 
+        os.makedirs(cur_dir+"/"+outdir)
+    if not os.path.exists(os.path.join(cur_dir,outdir,'clone_alignments')): 
+        os.makedirs(os.path.join(cur_dir,outdir,'clone_alignments'))
     for c in library.clones:
         if (len(c.sequence_ids) < 2): continue      # no need to align singlets
 
