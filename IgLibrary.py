@@ -6,13 +6,14 @@ from itertools import groupby
 from Bio.Seq import Seq
 from Bio import SeqIO, BiopythonWarning, pairwise2
 from Bio.SeqRecord import SeqRecord
+from AbClustering import define_clones
 import warnings
 warnings.simplefilter('ignore', BiopythonWarning)
 
 REGIONS = ['FR1-IMGT', 'CDR1-IMGT', 'FR2-IMGT', 'CDR2-IMGT', 'FR3-IMGT', 'CDR3-IMGT']
-V_fasta = { 'human': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Human_IGV.fasta',
+VFASTA_IG = { 'human': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Human_IGV.fasta',
            'mouse': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Mouse_IGV.fasta' }
-V_tcr_fasta = { 'human': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Human_TRBV.fasta',
+VFASTA_TCR = { 'human': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Human_TRBV.fasta',
            'mouse': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Mouse_TRBV.fasta' }
 
 class AntibodyLibrary:
@@ -35,10 +36,8 @@ class AntibodyLibrary:
         return entries
 
     def _fill_fwr1_beginning(self, organism, seq_type):
-        if seq_type == "Ig":
-            V_db = SeqIO.to_dict(SeqIO.parse(V_fasta[organism],"fasta"), key_function = lambda rec: rec.description.split('|')[1])
-        else:
-            V_db = SeqIO.to_dict(SeqIO.parse(V_tcr_fasta[organism],"fasta"), key_function = lambda rec: rec.description.split('|')[1])
+        germline_fasta = VFASTA_IG[organism] if seq_type == "Ig" else VFASTA_TCR[organism]
+        V_db = SeqIO.to_dict(SeqIO.parse(germline_fasta,"fasta"), key_function = lambda rec: rec.description.split('|')[1])
 
         for entry in self.entries:
             if not entry.full_fwr1() and (entry.entry_id.find('PGT') == -1 and entry.entry_id.find('10-1074') == -1):
@@ -70,45 +69,22 @@ class AntibodyLibrary:
 
 
 class ClonalAntibodyLibrary(AntibodyLibrary):
-    def __init__(self, name, igblast_file, changeo_file, chain, organism, seq_type):
+    def __init__(self, name, igblast_file, chain, organism, seq_type, sim_cutoff):
         AntibodyLibrary.__init__(self, name, igblast_file, chain, organism, seq_type)
-        self.changeo_file = changeo_file
-        self.clones = self._make_clones()
+        self.clones = define_clones(self, sim_cutoff)
         self.functional_clones = self._filter_functional()
 
-    def _make_clones(self):
-        clone_info = [ itemgetter(*[0,45])(entry.strip().split('\t')) for entry in open(self.changeo_file).readlines() ]
-
-        groups = {}
-        for x,y in clone_info:
-            groups.setdefault(y,[]).append(x)
-
-        clone_db = { x:y for x,y in groups.items() if x != "CLONE" }        # skip header entry
-        clones, sizes = [], []
-
-        for clone_id, seq_ids in clone_db.items():
-            # make clone
-            clone = Clone(clone_id, seq_ids)
-            clone.add_seqs([ entry for entry in self.entries if entry.entry_id in seq_ids ])
-            clones.append(clone)
-            sizes.append(len(seq_ids))
-
-        sorted_clones = [ x for (y,x) in sorted(zip(sizes, clones), reverse=True) ]
-
-        return sorted_clones
-
     def _filter_functional(self):
-        clones_filtered, sizes = [], []
+        clones_filtered = []
         for c in self.clones:
-            seq_ids = [ s.entry_id for s in c.sequences if s.prod == "Yes" ]
-            if len(seq_ids) == 0: continue
-            clone = Clone(c.clone_id, seq_ids)
-            clone.add_seqs([ entry for entry in self.entries if entry.entry_id in seq_ids ])
+            seqs = [ s for s in c.sequences if s.prod == "Yes" ]
+            if len(seqs) == 0: continue
+            clone = Clone(c.clone_id, seqs)
             clones_filtered.append(clone)
-            sizes.append(len(seq_ids))
 
-        sorted_clones_filtered = [ x for (y,x) in sorted(zip(sizes, clones_filtered), reverse=True) ]
-        return sorted_clones_filtered
+        clones_filtered.sort(key=lambda x: x.clone_size, reverse=True)
+
+        return clones_filtered
 
     def _output_summary(self):
         with open('results.txt','w') as outf:
@@ -185,9 +161,11 @@ class ReferenceAntibodyLibrary(AntibodyLibrary):
 
 
 class Clone:
-    def __init__(self, clone_id, sequence_ids):
+    def __init__(self, clone_id, sequences):
         self.clone_id = clone_id
-        self.sequence_ids = sequence_ids          # list of AntibodySequence objects
+        self.sequences = sequences          # list of AntibodySequence objects
+        self.clone_size = len(sequences)
+        self.sequence_ids = [ x.entry_id for x in sequences ]
 
     def add_seqs(self, seq_objs):
         self.sequences = seq_objs
@@ -201,7 +179,7 @@ class Clone:
         print("\n".join([s for s in self.sequence_ids]))
 
     def __lt__(self, other):
-        return len(self.sequence_ids) < len(other.sequence_ids)
+        return self.clone_size < other.clone_size
 
     def __gt__(self, other):
         return other.__lt__(self)
@@ -396,6 +374,7 @@ class AntibodySequence:
         elif num_insertions != 0:
             self.overflow = (self.overflow - num_insertions) % 3
 
+        self.ungapped_seq = self.seq.replace('-','')
         #print(self.entry_id,"\t",self.overflow,sep="")
 
         return self
@@ -433,6 +412,7 @@ class AntibodySequence:
 
             elif re.match('CDR3', region):
                 if hasattr(self, 'cdr3_nt'):
+                    self.cdr3_seq = self.cdr3_nt
                     seq = self.cdr3_nt
                     aa_seq = self.cdr3_aa
                     if start == 'NA':
@@ -448,6 +428,7 @@ class AntibodySequence:
                     self.cdr3_aligned_germ = self.germseq[start+deletions:]
                     seq = seq_aln.replace('-','')
                     germseq = self.germseq[start+deletions:].replace('-','')
+                    self.cdr3_seq = seq
             else:
                 if re.match('FR3', region) and hasattr(self, 'cdr3_nt'):
                     # correct for shorter FR3 using CDR3 sequence info
