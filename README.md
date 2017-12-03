@@ -9,8 +9,8 @@
 
 #### Install required modules and scripts
 ```shell
-pip install biopython xlsxwriter click
-echo 'export PATH=/data04-scratch/toliveira/jpai/antibody_pipeline:$PATH' >> ~/.bashrc;
+pip install biopython xlsxwriter clickdata04
+echo 'export PATH=/path/to/receptoire/:$PATH' >> ~/.bashrc;
 source ~/.bashrc
 ```
 
