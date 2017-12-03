@@ -3,11 +3,9 @@
 ## Set-up
 
 #### Requirements
-* python packages: biopython, xlsxwriter, click, changeo
+* python packages: biopython, xlsxwriter, click
 * igblast 1.6.1 (and blast database)
 * clustalw 2.1
-* antibody pipeline python and perl scripts
-
 
 #### Install required modules and scripts
 ```shell
