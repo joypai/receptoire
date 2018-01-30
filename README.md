@@ -9,7 +9,7 @@
 
 #### Install required modules and scripts
 ```shell
-pip install biopython xlsxwriter clickdata04
+pip install biopython xlsxwriter click
 echo 'export PATH=/path/to/receptoire/:$PATH' >> ~/.bashrc;
 source ~/.bashrc
 ```
