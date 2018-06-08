@@ -12,7 +12,8 @@ warnings.simplefilter('ignore', BiopythonWarning)
 
 REGIONS = ['FR1-IMGT', 'CDR1-IMGT', 'FR2-IMGT', 'CDR2-IMGT', 'FR3-IMGT', 'CDR3-IMGT']
 VFASTA_IG = { 'human': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Human_IGV.fasta',
-           'mouse': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Mouse_IGV.fasta' }
+           'mouse': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Mouse_IGV.fasta',
+           'rhesus_monkey': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.8.0/Corcoran_Rhesus_Monkey_IGV.fasta' }
 VFASTA_TCR = { 'human': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Human_TRBV.fasta',
            'mouse': '/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1/IMGT_Mouse_TRBV.fasta' }
 
@@ -69,10 +70,32 @@ class AntibodyLibrary:
 
 
 class ClonalAntibodyLibrary(AntibodyLibrary):
-    def __init__(self, name, igblast_file, chain, organism, seq_type, sim_cutoff):
+    def __init__(self, name, igblast_file, changeo_file, chain, organism, seq_type, sim_cutoff):
         AntibodyLibrary.__init__(self, name, igblast_file, chain, organism, seq_type)
-        self.clones = define_clones(self, sim_cutoff)
+        self.changeo_file = changeo_file
+        self.clones = self._make_clones()
+        #self.clones = define_clones(self, sim_cutoff)
         self.functional_clones = self._filter_functional()
+
+    def _make_clones(self):
+        clone_info = [ itemgetter(*[0,45])(entry.strip().split('\t')) for entry in open(self.changeo_file).readlines() ]
+
+        groups = {}
+        for x,y in clone_info:
+            groups.setdefault(y,[]).append(x)
+
+        clone_db = { x:y for x,y in groups.items() if x != "CLONE" }        # skip header entry
+        clones = []
+
+        for clone_id, seq_ids in clone_db.items():
+            # make clone
+            seqs = [ entry for entry in self.entries if entry.entry_id in seq_ids ]
+            clone = Clone(clone_id, seqs)
+            clones.append(clone)
+
+        clones.sort(key=lambda x: x.clone_size, reverse=True)
+
+        return clones
 
     def _filter_functional(self):
         clones_filtered = []
@@ -263,6 +286,10 @@ class AntibodySequence:
         self.outfile = open('seqs.txt','a')
         self.regions, self.germline_regions = self._extract_regions()
         self.nt_mismatches, self.aa_mismatches = self._calculate_mismatches()
+        self.display()
+
+    def count_positive_aas(self):
+        return self.cdr3_aa.count('R') + self.cdr3_aa.count('H') + self.cdr3_aa.count('K')
 
     def fill_fwr1_beginning(self, germline_v=None):
         if germline_v is None:
@@ -301,7 +328,7 @@ class AntibodySequence:
                 self.junction = "".join(junction_parts)
 
             elif heading[0].startswith('# Sub-region sequence details'):
-                self.cdr3_nt, self.cdr3_aa = content[0].strip().split('\t')[1:]
+                self.cdr3_nt, self.cdr3_aa  = content[0].strip().split('\t')[1:3]
             elif heading[0].startswith('# Alignment summary'):
                 self.v_insertions = 0
                 self.v_deletions = 0
@@ -313,20 +340,22 @@ class AntibodySequence:
                     region, start_idx, end, length, matches, mismatches, num_gaps, pc = [ int(x) if i not in [0,7] else x
                                                     for i,x in enumerate(region_content.split('\t')) ]
                     region = region.split(' ')[0]       # simplify CDR3-IMGT (germline) to CDR3-IMGT
+                    length = end-start_idx + 1
 
                     if self.first_region is None:
-                        if not hasattr(self, 'overflow'):
-                            self.overflow = length % 3
-                        if length >= 3:        # check beginning frame
-                            self.start = start_idx
-                            self.first_region = region
+                        #if not hasattr(self, 'overflow'):
+                        #    self.overflow = length % 3
+                        #if length >= 3:        # check beginning frame
+                        self.start = start_idx
+                        self.first_region = region
 
                     dels = length - (end-start_idx+1)
                     self.v_insertions += num_gaps - dels
                     self.v_deletions += dels
-                    if length < 3 and region != "CDR3-IMGT":
-                        self.details[region] = ['NA'] * 6
-                    elif region == "CDR3-IMGT" and start_idx-self.start < self.details['FR3-IMGT'][1]:      # check for cdr3 overlapping with fr3
+
+                    #if length < 3 and region != "CDR3-IMGT":
+                    #    self.details[region] = ['NA'] * 6
+                    if region == "CDR3-IMGT" and start_idx-self.start < self.details['FR3-IMGT'][1]:      # check for cdr3 overlapping with fr3
                         cdr3_length = end-self.start - self.details['FR3-IMGT'][1]
                         if cdr3_length < 3:
                             self.details[region] = ['NA'] * 6
@@ -343,7 +372,7 @@ class AntibodySequence:
 
                 for hit in content:
                     if hit[0] not in seen and hit[0] in ['V','J']:
-                        s_start, _, _, _, seq, germseq = hit.split('\t')[10:16]
+                        q_start, _, s_start, _, _, _, seq, germseq = hit.split('\t')[8:16]
 
                         if self.chain_type != "VH" and hit[0] == "J" and len(junction_overlaps) != 0 and seq.startswith(junction_overlaps[0]):
                             seq = seq[len(junction_overlaps[0]):]
@@ -356,6 +385,22 @@ class AntibodySequence:
                             self.seq += self.junction
                             self.germseq += 'N' * len(self.junction)
                             self.vdj_start = int(s_start)
+                            self.q_start = int(q_start)
+
+                            if not hasattr(self, 'overflow'):
+                                if self.vdj_start % 3 == 2:
+                                    self.overflow = 2
+                                elif self.vdj_start % 3 == 0:
+                                    self.overflow = 1
+                                else:
+                                    self.overflow = 0
+
+
+
+                            # check V region start and FR1-IMGT start is same in IgBlast output
+                            #print(self.entry_id, self.overflow, self.q_start, self.start)
+                            #if self.q_start != self.start:
+                            #    self.overflow += (self.start - self.q_start)
                         seen.add(hit[0])
 
         if not hasattr(self,'details'):
@@ -369,16 +414,18 @@ class AntibodySequence:
         start, end, length = self.details[self.first_region][0:3]
         num_deletions = self.seq[start:start+length].count('-')
         num_insertions = self.germseq[start:start+length].count('-')
-        if num_deletions != 0 and num_insertions != 0:              # deletion and insertion in first region
-            self.overflow = (self.overflow + num_deletions) % 3
-        elif num_insertions != 0:
-            self.overflow = (self.overflow - num_insertions) % 3
+        #if num_deletions != 0 or num_insertions != 0:              # deletion and insertion in first region
+        #    self.overflow = (self.overflow - num_deletions - num_insertions) % 3
+        #if num_deletions != 0:              # deletion and insertion in first region
+        #    self.overflow = (self.overflow - num_deletions) % 3
+        #elif num_insertions != 0 and self.q_start == self.start:
+        #    print(self.entry_id, self.start, self.q_start, self.overflow)
+        #    self.overflow = (self.overflow - num_insertions) % 3
 
         self.ungapped_seq = self.seq.replace('-','')
         #print(self.entry_id,"\t",self.overflow,sep="")
 
         return self
-
 
     def _extract_regions(self):
         region_seqs = {}
@@ -412,11 +459,13 @@ class AntibodySequence:
 
             elif re.match('CDR3', region):
                 if hasattr(self, 'cdr3_nt'):
-                    self.cdr3_seq = self.cdr3_nt
                     seq = self.cdr3_nt
                     aa_seq = self.cdr3_aa
                     if start == 'NA':
                         a = self.seq.find(self.cdr3_nt)
+                        if a == -1:
+                            self.cdr3_seq = self.seq[start+deletions:]
+                            self.seq.find(self.cdr3_seq)
                         germseq = self.germseq[a:a+len(self.cdr3_nt)].replace('-','')
                     else:
                         germseq = self.germseq[start+deletions:start+deletions+len(self.cdr3_nt)].replace('-','')
@@ -430,10 +479,14 @@ class AntibodySequence:
                     germseq = self.germseq[start+deletions:].replace('-','')
                     self.cdr3_seq = seq
             else:
-                if re.match('FR3', region) and hasattr(self, 'cdr3_nt'):
+                #if re.match('FR3', region) and hasattr(self, 'cdr3_nt'):
+                if re.match('FR3', region) and hasattr(self, 'cdr3_seq'):
                     # correct for shorter FR3 using CDR3 sequence info
-                    cdr_start = self.seq.find(self.cdr3_nt)
+                    cdr_start = self.seq.find(self.cdr3_seq)
                     length += len(self.seq[start+deletions+length:cdr_start])
+                    if self.entry_id == "GPEORI1NAIVETOTALIGMHC_24-p1348":
+                        print(self.seq)
+                        print(cdr_start)
 
                 seq_aln = self.seq[start+deletions:start+deletions+length]
                 germseq = self.germseq[start+deletions:start+deletions+length]
@@ -469,6 +522,7 @@ class AntibodySequence:
         """ determine number of mismatches in regions up to CDR3 """
 
         if hasattr(self,'cdr3_nt'):       # remove CDR3 as defined by IgBlast
+
             seq = self.seq[self.overflow:].split(self.cdr3_nt)[0]
             germseq = self.germseq[self.overflow:self.overflow+len(seq)]
             aa_seq = self.aa_seq.split(self.cdr3_aa)[0]

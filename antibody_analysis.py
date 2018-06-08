@@ -6,10 +6,11 @@ from summarywriter import write_summary
 
 # tools:
 #CLUSTALW2='~/software/clustalw2'
-IGBLAST='/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1'
+#IGBLAST='/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.6.1'
+IGBLAST='/rugpfs/fs0/nuss_lab/scratch/jpai/software/ncbi-igblast-1.8.0'
 
 #DIST_MODEL = { 'mouse': 'm1n', 'human': 'hs1f'}             # old version changeo
-DIST_MODEL = { 'mouse': 'm1n_compat', 'human': 'hs1f_compat'}
+DIST_MODEL = { 'mouse': 'm1n_compat', 'human': 'hs1f_compat', 'rhesus_monkey': 'ham'}
 
 
 # helper functions:
@@ -46,6 +47,8 @@ def changeo(input_fasta, igblast_out, organism, *args):
     cmd = "MakeDb.py igblast -s {infile} -i {outfile} -r {igblastn} \
         --regions --scores --failed".format(infile=input_fasta, outfile=igblast_out, igblastn=IGBLAST)
 
+    print(cmd)
+
     return_code = subprocess.call(cmd, shell=True, stderr=subprocess.PIPE)
     click.echo("\n")
     assert return_code == 0, 'Error in call to MakeDb.py. Exiting.'
@@ -77,7 +80,7 @@ def changeo(input_fasta, igblast_out, organism, *args):
 
 @click.group()
 @click.option('--input-file', '-i', type=click.Path(exists=True), required=True, help='input fasta')
-@click.option('--model_organism', '-m', type=click.Choice(['mouse', 'human']),
+@click.option('--model_organism', '-m', type=click.Choice(['mouse', 'human', 'rhesus_monkey']),
               prompt="Please enter model organism used",
               help='organism from which sequences were obtained')
 @click.option('--seq_type', '-s', type=click.Choice(['Ig', 'TCR']), default='Ig',
@@ -92,7 +95,8 @@ def run_analysis(ctx, input_file, model_organism, seq_type, extend_5end):
     ctx.obj['EXTEND'] = extend_5end
 
     # determine if heavy or light chain based on input fasta file name
-    ctx.obj['CHAIN'] = 'IgH' if input_file.find('IgH') != -1 else 'IgK' if input_file.find('IgK') != -1 else 'IgL'
+    #ctx.obj['CHAIN'] = 'IgH' if input_file.find('IgH') != -1 else 'IgK' if input_file.find('IgK') != -1 else 'IgL'
+    ctx.obj['CHAIN'] = 'IgL' if input_file.find('IgL') != -1 else 'IgK' if input_file.find('IgK') != -1 else 'IgH'
 
 
 
@@ -100,8 +104,9 @@ def run_analysis(ctx, input_file, model_organism, seq_type, extend_5end):
 @click.option('--outdir', '-o', default='results', help='output directory name')
 @click.option('--cut-off', '-c', type=float, help='clone cutoff distance')
 @click.option('--filter_functional', '-f', is_flag=True, help='output clones for functional sequences')
+@click.option('--changeo_only', '-x', is_flag=True, help='stop after changeo')
 @click.pass_context
-def clone(ctx, outdir, cut_off, filter_functional):
+def clone(ctx, outdir, cut_off, filter_functional, changeo_only):
     input_fasta = os.path.abspath(ctx.obj['INPUT'])
     chain = ctx.obj['CHAIN']
     model_organism = ctx.obj['ORGANISM']
@@ -121,6 +126,13 @@ def clone(ctx, outdir, cut_off, filter_functional):
 
     igblast_out = run_igblastn(input_fasta, model_organism, seq_type, ctx.obj['EXTEND'])
     changeo_out = changeo(input_fasta, igblast_out, model_organism, cut_off)
+
+    if changeo_only:
+        if not os.path.exists(cur_dir+'/intermediate_files'): os.makedirs(cur_dir+'/intermediate_files')
+        subprocess.call("mv *.tab "+cur_dir+"/intermediate_files", shell=True, stderr=subprocess.PIPE)
+        click.secho("Done", fg="green")
+        subprocess.call(['date'])
+        sys.exit()
     library = ClonalAntibodyLibrary(library_name, igblast_out, changeo_out, chain, model_organism, seq_type, cut_off)
 
     click.secho('Creating clone alignment files: ', fg='blue', bold=True, nl=False)
@@ -137,7 +149,8 @@ def clone(ctx, outdir, cut_off, filter_functional):
 
         # align with clustal
         for r in region_filenames:
-            cmd = "perl /data04-scratch/toliveira/jpai/antibody_pipeline/align_region_clustal.pl "+r+" "+id_order_file +" True -c "
+            current_dir = os.path.dirname(os.path.realpath(__file__))
+            cmd = "perl " + current_dir + "/align_region_clustal.pl "+r+" "+id_order_file +" True -c "
             return_code = subprocess.call(cmd, shell=True, stdout=open(c.clone_id+"_"+r+"_align.txt","w"))#, stderr=subprocess.PIPE)
 
         # create clone alignment file
@@ -220,7 +233,7 @@ def reference(ctx, reference, sec_ref, filter_functional, filter_same_v, align_c
     click.secho(library_name+"_alignment.xlsx")
 
     # create clone alignment file
-    output_ref_excel(library, ref_id, sec_ref_ids, chain, filter_functional, align_cdr3)
+    output_ref_excel(library, ref_id, sec_ref_ids, chain, filter_same_v, filter_functional, align_cdr3)
     subprocess.call("rm *.tmp; rm *.fa; rm ref_align.txt", shell=True)
 
     # create summary excel file
